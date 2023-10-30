@@ -13,7 +13,12 @@ impl Server {
     pub fn new(
         mut responder: impl FnMut(tiny_http::Request) -> Result<(), io::Error> + Send + 'static,
     ) -> Self {
-        let server = Arc::new(tiny_http::Server::http("127.0.0.1:0").unwrap());
+        let server = Arc::new(tiny_http::Server::http("127.0.0.1:0").unwrap_or_else(|e| {
+            panic!(
+                "Failed to start server: {}",
+                e.to_string()
+            )
+        }));
         let shall_exit = Arc::new(atomic::AtomicBool::new(false));
         let srv = server.clone();
         let exit = shall_exit.clone();
@@ -61,10 +66,12 @@ impl Server {
         self.server.server_addr().to_ip().unwrap().port()
     }
 
-    pub fn exit(&mut self) -> Result<(), io::Error> {
+    pub fn exit(&mut self) -> Result<(), std::io::Error> {
         self.shall_exit.store(true, atomic::Ordering::Relaxed);
         match self.handler.take() {
-            Some(h) => h.join().unwrap(),
+            Some(h) => h
+                .join()
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Unable to take handler: {:?}", e)))?,
             None => Ok(()),
         }
     }
